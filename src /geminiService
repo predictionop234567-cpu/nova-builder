@@ -1,0 +1,90 @@
+import { GoogleGenAI } from "@google/genai";
+import { WebsiteSettings } from "../types";
+
+const SYSTEM_PROMPT = `You are an expert web developer and UI/UX designer. 
+Your task is to generate a complete, professional, and responsive website based on the user's requirements.
+
+CRITICAL RULES:
+1. Output ONLY a single, valid HTML document.
+2. Include all CSS within <style> tags in the <head>.
+3. Include all JavaScript within <script> tags before the closing </body> tag.
+4. Use modern, clean, and accessible HTML5.
+5. Ensure the design is fully responsive using CSS Flexbox and Grid.
+6. Use high-quality placeholder images from Unsplash (via picsum.photos).
+7. Add subtle animations if requested.
+8. The code must be production-ready and visually stunning.
+9. Do not include any explanations or markdown formatting. Start directly with <!DOCTYPE html>.
+
+DESIGN SYSTEM:
+- Use the provided Brand Name, Primary Color, Secondary Color, and Font Family.
+- Follow the requested Design Style (e.g., Glass, Minimal, Neon).
+- Ensure high contrast and accessibility.
+
+STRUCTURE:
+- Include a Navigation bar, Hero section, Features, Testimonials, Pricing (if applicable), and Footer.
+- Use semantic HTML tags (<header>, <main>, <section>, <footer>, etc.).
+`;
+
+export async function generateWebsite(prompt: string, settings: WebsiteSettings): Promise<string> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error("GEMINI_API_KEY is not set");
+
+  const ai = new GoogleGenAI({ apiKey });
+  
+  const userPrompt = `
+    Create a ${settings.type} for a brand named "${settings.brandName}".
+    Style: ${settings.style}
+    Primary Color: ${settings.primaryColor}
+    Secondary Color: ${settings.secondaryColor}
+    Font Family: ${settings.fontFamily}
+    
+    Requirements:
+    - Description: ${prompt}
+    - Responsive: ${settings.options.responsive}
+    - Animations: ${settings.options.animations}
+    - SEO Meta Tags: ${settings.options.seo}
+    - Accessibility: ${settings.options.accessibility}
+    - Multiple Sections: ${settings.options.multipleSections}
+    
+    Generate the full HTML, CSS, and JS.
+  `;
+
+  try {
+    // Primary Model
+    const response = await ai.models.generateContent({
+      model: "gemini-1.5-pro-latest",
+      contents: [{ parts: [{ text: userPrompt }] }],
+      config: {
+        systemInstruction: SYSTEM_PROMPT,
+        temperature: 0.7,
+      },
+    });
+
+    let html = response.text || "";
+    
+    // Clean up markdown if AI accidentally included it
+    html = html.replace(/^```html\n/, "").replace(/\n```$/, "").trim();
+    
+    if (!html.toLowerCase().includes("<!doctype html>")) {
+        // Fallback or retry logic could go here
+        console.warn("Generated content might not be a full HTML document.");
+    }
+
+    return html;
+  } catch (error: any) {
+    console.error("Primary model failed, trying fallback...", error);
+    
+    // Fallback Model
+    const fallbackResponse = await ai.models.generateContent({
+      model: "gemini-1.5-flash",
+      contents: [{ parts: [{ text: userPrompt }] }],
+      config: {
+        systemInstruction: SYSTEM_PROMPT,
+        temperature: 0.7,
+      },
+    });
+
+    let html = fallbackResponse.text || "";
+    return html.replace(/^```html\n/, "").replace(/\n```$/, "").trim();
+  }
+}
